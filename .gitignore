@@ -1,0 +1,14 @@
+# XAMPP / PHP
+*.log
+*.cache
+php_errors.log
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.sublime-project
