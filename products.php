@@ -3,22 +3,68 @@ $pageTitle = 'Shop';
 require_once 'includes/db.php';
 require_once 'includes/header.php';
 
-$category = isset($_GET['category']) ? $_GET['category'] : '';
-$search   = isset($_GET['search'])   ? strtolower(trim($_GET['search'])) : '';
-$sort     = isset($_GET['sort'])     ? $_GET['sort'] : 'default';
+$category = isset($_GET['category']) ? trim($_GET['category']) : '';
+$search   = isset($_GET['search'])   ? trim($_GET['search'])   : '';
+$sort     = isset($_GET['sort'])     ? $_GET['sort']           : 'default';
 
-$filtered = array_filter($products, function($p) use ($category, $search) {
-    if ($category && $p['category'] !== $category) return false;
-    if ($search && strpos(strtolower($p['name']), $search) === false) return false;
-    return true;
-});
+$catLabels   = ['phones'=>'Phones','laptops'=>'Laptops','audio'=>'Audio','tablets'=>'Tablets','tv'=>'TV & Displays'];
+$pageHeading = $category ? ($catLabels[$category] ?? ucfirst($category)) : ($search ? "Search: \"".htmlspecialchars($search)."\"" : 'All Products');
 
-if ($sort === 'low')    usort($filtered, fn($a,$b) => $a['price'] - $b['price']);
-elseif ($sort === 'high') usort($filtered, fn($a,$b) => $b['price'] - $a['price']);
-elseif ($sort === 'name') usort($filtered, fn($a,$b) => strcmp($a['name'], $b['name']));
+// ── Query from DB when available, otherwise filter static array ──
+if ($conn) {
+    $where  = [];
+    $params = [];
+    $types  = '';
 
-$catLabels = ['phones'=>'Phones','laptops'=>'Laptops','audio'=>'Audio','tablets'=>'Tablets','tv'=>'TV & Displays'];
-$pageHeading = $category ? ($catLabels[$category] ?? ucfirst($category)) : ($search ? "Search: \"$search\"" : 'All Products');
+    if ($category) {
+        $where[]  = 'category = ?';
+        $params[] = $category;
+        $types   .= 's';
+    }
+    if ($search) {
+        $where[]  = 'name LIKE ?';
+        $params[] = '%' . $search . '%';
+        $types   .= 's';
+    }
+
+    $orderBy = match($sort) {
+        'low'  => 'price ASC',
+        'high' => 'price DESC',
+        'name' => 'name ASC',
+        default => 'id ASC',
+    };
+
+    $sql = "SELECT * FROM products" . ($where ? ' WHERE ' . implode(' AND ', $where) : '') . " ORDER BY $orderBy";
+
+    if ($params) {
+        $stmt = $conn->prepare($sql);
+        $stmt->bind_param($types, ...$params);
+        $stmt->execute();
+        $filtered = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+        $stmt->close();
+    } else {
+        $filtered = $conn->query($sql)->fetch_all(MYSQLI_ASSOC);
+    }
+
+    foreach ($filtered as &$p) {
+        $p['price']     = (float)$p['price'];
+        $p['old_price'] = (float)$p['old_price'];
+        $p['rating']    = (int)$p['rating'];
+    }
+    unset($p);
+
+} else {
+    // Fallback: filter static $products array
+    $filtered = array_filter($products, function($p) use ($category, $search) {
+        if ($category && $p['category'] !== $category) return false;
+        if ($search && stripos($p['name'], $search) === false) return false;
+        return true;
+    });
+
+    if ($sort === 'low')       usort($filtered, fn($a,$b) => $a['price'] <=> $b['price']);
+    elseif ($sort === 'high')  usort($filtered, fn($a,$b) => $b['price'] <=> $a['price']);
+    elseif ($sort === 'name')  usort($filtered, fn($a,$b) => strcmp($a['name'], $b['name']));
+}
 ?>
 
 <!-- Page Header -->
